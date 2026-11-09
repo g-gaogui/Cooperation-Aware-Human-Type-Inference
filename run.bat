@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+REM Show Python prints immediately when stdout is piped (e.g. Jupyter).
+set PYTHONUNBUFFERED=1
+
 REM Default: start from step 1
 set START_STEP=%1
 if "%START_STEP%"=="" set START_STEP=1
@@ -12,6 +15,13 @@ for %%F in ("%MAZE_NAME%") do set "FOLDER=%%~nF"
 if not exist "%FOLDER%" mkdir "%FOLDER%"
 
 echo Starting from step %START_STEP%...
+echo.
+
+echo ========================================
+echo Installing Julia packages if needed...
+echo ========================================
+julia --project=. -e "using Pkg; Pkg.instantiate()"
+if errorlevel 1 goto :error
 echo.
 
 if %START_STEP% LEQ 1 (
@@ -146,7 +156,7 @@ echo.
 echo ========================================
 echo All selected steps completed successfully!
 echo ========================================
-pause
+if not defined NOPAUSE pause
 exit /b 0
 
 :error
@@ -154,5 +164,5 @@ echo.
 echo ========================================
 echo ERROR: The previous step failed.
 echo ========================================
-pause
+if not defined NOPAUSE pause
 exit /b 1

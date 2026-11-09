@@ -1,20 +1,9 @@
-#=
-Animate the human value-iteration trajectory with utility captions.
-
-Prereq:
-  python my_project/value_iteration.py   # writes mazes/value_iteration_results.json
-
-Run from repo root in Julia (project activated, Julia 1.10/1.11):
-  include("my_project/visualize_trajectory.jl")
-
-Outputs (depends on goals in value_iteration_results.json):
-  my_project/mazes/traj_both.gif
-  my_project/mazes/traj_red.gif
-  my_project/mazes/traj_yellow.gif
-=#
+# Animate the independent-human value-iteration trajectory.
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
+Pkg.activate(@__DIR__)
+Pkg.instantiate()
+CLIPS_ROOT = joinpath(@__DIR__, "..", "CLIPS.jl")
 
 using PDDL
 using PDDLViz
@@ -23,7 +12,7 @@ using JSON3
 
 PDDL.Arrays.@register()
 
-include(joinpath(@__DIR__, "..", "doors-keys-gems", "src", "ascii.jl"))
+include(joinpath(CLIPS_ROOT, "doors-keys-gems", "src", "ascii.jl"))
 
 function get_obj_color(state::State, obj::Const)
     for color in PDDL.get_objects(state, :color)
@@ -34,19 +23,15 @@ function get_obj_color(state::State, obj::Const)
     return Const(:none)
 end
 
-## Paths / options ##
-
 MAZE_PATH = joinpath(@__DIR__, ARGS[1])
-DOMAIN_PATH = joinpath(@__DIR__, "..", "doors-keys-gems", "dataset", "domain.pddl")
+DOMAIN_PATH = joinpath(CLIPS_ROOT, "doors-keys-gems", "dataset", "domain.pddl")
 RESULTS_PATH = joinpath(@__DIR__, ARGS[2])
 OUT_DIR = joinpath(@__DIR__, ARGS[3])
 
-# Which goals to animate (must exist as keys under results["goals"])
 GOAL_COLORS = ["both"]
 FRAMERATE = 2
 TRAIL_LENGTH = 20
 
-## Load maze → PDDL ##
 
 function load_maze_ascii(path::AbstractString)
     lines = String[]
@@ -64,11 +49,10 @@ problem = ascii_to_pddl(load_maze_ascii(MAZE_PATH), "sample-maze")
 domain = load_domain(DOMAIN_PATH)
 state0 = initstate(domain, problem)
 
-# Freeze robot so only the human path is visually meaningful; robot still waits on its turn
+# Freeze the robot so the animation shows the human path only.
 state0 = copy(state0)
 state0[pddl"(frozen robot)"] = true
 
-## Renderer ##
 
 using PDDLViz: to_color
 
@@ -117,16 +101,12 @@ renderer = PDDLViz.GridworldRenderer(
     ),
 )
 
-## Load A* results ##
-
-isfile(RESULTS_PATH) || error(
-    "Missing $RESULTS_PATH\nRun: python my_project/value_iteration.py"
-)
+isfile(RESULTS_PATH) || error("Missing $RESULTS_PATH")
 
 results = JSON3.read(read(RESULTS_PATH, String))
-println("Loaded A* results from: ", RESULTS_PATH)
+println("Loaded results from: ", RESULTS_PATH)
 
-"""Build captions that display only human actions and suppress robot wait text."""
+"""Captions for human actions; robot-wait frames omit the action text."""
 function build_captions(trajectory, pddl_plan, goal_color)
     captions = Dict{Int,String}()
     traj = collect(trajectory)
@@ -139,7 +119,6 @@ function build_captions(trajectory, pddl_plan, goal_color)
         act_s = String(act_str)
 
         if occursin("wait", act_s) || occursin("robot", act_s)
-            # Retain human state info without printing "(robot wait)"
             if human_idx <= length(traj)
                 step = traj[human_idx]
                 captions[frame] = "goal=$(goal_color)  t=$(step["t"])  V=$(step["utility"])"
@@ -166,7 +145,6 @@ function animate_goal(goal_color::AbstractString)
     pddl_plan_strs = sol["pddl_plan"]
     isempty(pddl_plan_strs) && error("Empty plan for goal $goal_color")
 
-    # Keep original full plan to preserve PDDL action preconditions
     plan = Term[PDDL.parse_pddl(String(a)) for a in pddl_plan_strs]
     captions = build_captions(traj, pddl_plan_strs, goal_color)
 
@@ -188,8 +166,6 @@ function animate_goal(goal_color::AbstractString)
     println("Saved: ", out_path)
     return out_path
 end
-## Run ##
-
 mkpath(OUT_DIR)
 for color in GOAL_COLORS
     animate_goal(color)

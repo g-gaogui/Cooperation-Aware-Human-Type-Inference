@@ -1,41 +1,8 @@
-"""
-Value iteration for the Doors-Keys-Gems ASCII maze (human only).
+"""Independent-human value iteration on a Doors–Keys–Gems maze.
 
-Reads the same maze format as render_maze.jl / ascii.jl.
-Goals can be a single gem ("red", "yellow") or both gems ("both").
-
-For every goal, this now sweeps over all 2^|key types| combinations of
-which key types actually exist/are obtainable in the world (e.g. with 2
-key colors present in the maze, it considers: neither key exists, only
-red exists, only yellow exists, both exist). For each combination:
-
-  1. BFS determines which gems are reachable at all when keys outside
-     the combination can never be picked up (so any door that only that
-     key opens stays locked forever).
-  2. The requested goal gem set is narrowed to whichever of its gems are
-     actually reachable in that combination.
-  3. If none of the goal gems are reachable, value iteration is skipped
-     for that combination: every state reached under it instead gets a
-     sentinel utility and a single "wait" action in its Q-values.
-  4. Otherwise, for each reachable state:
-       V(s)  = -cost-to-go(s)
-       Q(s,a) = -cost(s,a) + V(s')
-       pi(s)  = argmax_a Q(s,a)
-
-All combinations are merged into one "utility" / "q_values" table per
-goal, keyed by a JSON string that now also records "initial_keys" (the
-key types available in that combination), so states that share the same
-position/held-keys/unlocked-doors/held-gems but come from different
-combinations never collide.
-
-The "all keys available" combination additionally drives the top-level
-path / trajectory / policy summary fields, exactly like the single-
-scenario version of this script used to.
-
-Run from my_project/ or repo root:
-  python my_project/value_iteration.py
-  python my_project/value_iteration.py --goals both
-  python my_project/value_iteration.py --goals red yellow both
+Solves every 2^|K| key-availability scenario. Utilities are negative
+cost-to-go. State keys include `initial_keys` so scenarios do not collide.
+The all-keys-available scenario supplies the reported path and policy.
 """
 
 from __future__ import annotations
@@ -47,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple
 
-# (dx, dy) with y increasing downward (row), x increasing right (col) — 1-based like PDDL
+# 1-based coordinates; y increases downward.
 MOVES = {
     "up": (0, -1),
     "down": (0, 1),
@@ -57,18 +24,13 @@ MOVES = {
 
 KEY_CHARS = {"r": "red", "y": "yellow", "b": "blue", "e": "green", "p": "pink"}
 DOOR_CHARS = {"R": "red", "Y": "yellow", "B": "blue", "E": "green", "P": "pink"}
-# Gem colors follow ascii.jl: gem1=red, gem2=yellow, gem3=blue, gem4=green
-GEM_COLOR_ORDER = ["red", "yellow", "blue", "green"]
+GEM_COLOR_ORDER = ["red", "yellow", "blue", "green"]  # gem1..gem4, as in ascii.jl
 
 Pos = Tuple[int, int]  # (x, y)
-State = Tuple[Pos, FrozenSet[str], FrozenSet[str], FrozenSet[str]]
-# State = (position, keys_held, unlocked_door_ids, gems_held)
+State = Tuple[Pos, FrozenSet[str], FrozenSet[str], FrozenSet[str]]  # pos, keys, unlocked, gems
 QTable = Dict[State, Dict[str, float]]
 
-# Sentinel used when a key-availability combination makes none of the
-# requested goal gems reachable: instead of running value iteration we
-# record a single "wait" action at this utility for every state reached
-# under that combination.
+# Utility assigned when no requested goal gem is reachable.
 UNREACHABLE_VALUE = -1_000_000.0
 WAIT_ACTION = "wait"
 
@@ -84,8 +46,7 @@ class Maze:
     doors: Dict[str, Tuple[Pos, str]]  # door_id -> (pos, color)
     gems: Dict[str, Tuple[Pos, str]]  # gem_id -> (pos, color)
     ascii_rows: List[str]
-    # logical id -> PDDL object name (same discovery order as ascii.jl)
-    pddl_names: Dict[str, str]
+    pddl_names: Dict[str, str]  # logical id -> PDDL name, ascii.jl order
 
     def in_bounds(self, pos: Pos) -> bool:
         x, y = pos
@@ -226,13 +187,11 @@ def successors(
     (x, y), keys_held, unlocked, gems_held = state
     pos = (x, y)
 
-    # Move
     for name, (dx, dy) in MOVES.items():
         nxt = (x + dx, y + dy)
         if passable(maze, nxt, unlocked):
             yield name, (nxt, keys_held, unlocked, gems_held), 1.0
 
-    # Pickup key
     key_id = None
     for kid, kpos in maze.keys.items():
         if (
@@ -250,7 +209,6 @@ def successors(
             1.0,
         )
 
-    # Pickup gem
     gem_id = None
     for gid, (gpos, _) in maze.gems.items():
         if gpos == pos and gid not in gems_held:
@@ -264,7 +222,6 @@ def successors(
             1.0,
         )
 
-    # Unlock adjacent locked door
     for door_id, (dpos, color) in maze.doors.items():
         if door_id in unlocked:
             continue

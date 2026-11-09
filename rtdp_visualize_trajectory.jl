@@ -1,35 +1,9 @@
-#=
-Animate the JOINT human+assistant value-iteration trajectory with
-utility / per-agent-cost captions.
-
-Differs from visualize_trajectory.jl (step 1, human-only) in three
-ways:
-  1. The robot is NOT frozen — it takes its own real actions, so both
-     agents move.
-  2. Captions show combined utility AND the human/assistant cost-to-go
-     split (human_cost_to_go / assistant_cost_to_go from the joint
-     results JSON), plus which agent acted ("H:..." / "A:...").
-  3. `results["goals"]` keys are joint goal labels like
-     "H:red+A:yellow" rather than a single gem color, and trajectory
-     entries align 1:1 with pddl_plan steps (no interleaved
-     "(wait robot)" padding to skip over), since joint_value_iteration.py
-     already writes exactly one trajectory entry per real pddl_plan
-     action.
-
-Prereq:
-  python my_project/joint_value_iteration.py
-      # writes mazes/joint_value_iteration_results.json
-
-Run from repo root in Julia (project activated, Julia 1.10/1.11):
-  include("my_project/visualize_joint_trajectory.jl")
-
-Outputs (one per goal label found in the results JSON, unless
-GOAL_LABELS is set below to a subset):
-  my_project/mazes/joint_traj_<sanitized-goal-label>.gif
-=#
+# Animate a belief-aware assistant RTDP test trajectory.
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
+Pkg.activate(@__DIR__)
+Pkg.instantiate()
+CLIPS_ROOT = joinpath(@__DIR__, "..", "CLIPS.jl")
 
 using PDDL
 using PDDLViz
@@ -39,7 +13,7 @@ using JSON3
 
 PDDL.Arrays.@register()
 
-include(joinpath(@__DIR__, "..", "doors-keys-gems", "src", "ascii.jl"))
+include(joinpath(CLIPS_ROOT, "doors-keys-gems", "src", "ascii.jl"))
 
 function get_obj_color(state::State, obj::Const)
     for color in PDDL.get_objects(state, :color)
@@ -50,22 +24,16 @@ function get_obj_color(state::State, obj::Const)
     return Const(:none)
 end
 
-## Paths / options ##
-
 MAZE_PATH = joinpath(@__DIR__, ARGS[1])
-DOMAIN_PATH = joinpath(@__DIR__, "..", "doors-keys-gems", "dataset", "domain.pddl")
+DOMAIN_PATH = joinpath(CLIPS_ROOT, "doors-keys-gems", "dataset", "domain.pddl")
 RESULTS_PATH = joinpath(@__DIR__, ARGS[2])
 OUT_DIR = joinpath(@__DIR__, ARGS[3])
 OUT_NAME = ARGS[4]
 
-# Which goal labels to animate. `nothing` means "animate every goal
-# found in results["goals"]"; set to e.g. ["H:red+A:yellow"] to pick
-# specific ones.
-GOAL_LABELS = nothing
+GOAL_LABELS = nothing  # nothing = all goals in the JSON
 FRAMERATE = 2
 TRAIL_LENGTH = 20
 
-## Load maze → PDDL ##
 
 function load_maze_ascii(path::AbstractString)
     lines = String[]
@@ -91,10 +59,6 @@ problem = ascii_to_pddl(load_maze_ascii(MAZE_PATH), "sample-maze")
 domain = load_domain(DOMAIN_PATH)
 state0 = initstate(domain, problem)
 
-# NOTE: unlike the step-1 visualizer, we do NOT freeze the robot here —
-# it has real planned actions and should move.
-
-## Renderer ##
 
 using PDDLViz: to_color
 
@@ -143,23 +107,12 @@ renderer = PDDLViz.GridworldRenderer(
     ),
 )
 
-## Load joint VI results ##
-
-isfile(RESULTS_PATH) || error(
-    "Missing $RESULTS_PATH\nRun: python my_project/joint_value_iteration.py"
-)
+isfile(RESULTS_PATH) || error("Missing $RESULTS_PATH")
 
 results = JSON3.read(read(RESULTS_PATH, String))
-println("Loaded joint results from: ", RESULTS_PATH)
+println("Loaded RTDP results from: ", RESULTS_PATH)
 
-"""
-Build caption dict for anim_plan frames (1-indexed). Trajectory
-entries and pddl_plan steps are already 1:1 aligned by
-joint_value_iteration.py — trajectory[1] is the start (before any
-action), trajectory[i+1] is the state after pddl_plan[i] — so frame
-i (1-indexed, matching PDDLViz's anim_plan convention where frame 1
-is the initial state) maps directly onto trajectory[i].
-"""
+"""Map trajectory[i] onto anim_plan frame i (frame 1 is the initial state)."""
 function build_joint_captions(trajectory, goal_label)
     captions = Dict{Int,String}()
     traj = collect(trajectory)
@@ -169,7 +122,7 @@ function build_joint_captions(trajectory, goal_label)
 
     for i in 2:length(traj)
         step = traj[i]
-        act = step["action"]  # e.g. "H:right" or "A:pickup(gem:yellow)"
+        act = step["action"]
         captions[i] = "t=$(step["t"])  P(C|τ)=$(format_probability(step["p_collaborative"]))  P(I|τ)=$(format_probability(step["p_independent"])) "
     end
     return captions
@@ -219,8 +172,6 @@ function animate_goal(goal_label::AbstractString)
     println("Saved: ", out_path)
     return out_path
 end
-
-## Run ##
 
 mkpath(OUT_DIR)
 labels = GOAL_LABELS === nothing ? collect(keys(results["goals"])) : GOAL_LABELS
