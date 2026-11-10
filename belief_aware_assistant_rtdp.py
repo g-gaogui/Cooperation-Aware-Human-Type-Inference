@@ -230,17 +230,13 @@ def heuristic_v(state, p_i, q_i, q_c):
 
 def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
          p_independent=0.5, beta=10.0, trials=2000, max_steps=500, seed=0,
-         belief_bins=20, check_interval=100, residual_tolerance=1e-3,
-         convergence_patience=3, min_trials=300):
+         belief_bins=20):
     """Learn one assistant policy over (joint state, discretized belief).
 
     Training episodes are balanced across the two fixed human types for
     trajectory coverage. Bellman backups use the belief-mixture model.
 
-    Convergence is checked every ``check_interval`` episodes using the maximum
-    absolute update residual observed during that interval. Training stops
-    after ``convergence_patience`` consecutive intervals below the tolerance,
-    but never before ``min_trials`` episodes.
+    Training runs for the requested number of episodes (``trials``).
     """
     if not 0.0 <= p_independent <= 1.0:
         raise ValueError("p_independent must be in [0, 1]")
@@ -248,26 +244,10 @@ def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
         raise ValueError("belief_bins must be >= 1")
     if trials < 1:
         raise ValueError("trials must be >= 1")
-    if check_interval < 1:
-        raise ValueError("check_interval must be >= 1")
-    if residual_tolerance < 0.0:
-        raise ValueError("residual_tolerance must be non-negative")
-    if convergence_patience < 1:
-        raise ValueError("convergence_patience must be >= 1")
-    if min_trials < 1:
-        raise ValueError("min_trials must be >= 1")
-
     rng = random.Random(seed)
     values, q_values = {}, {}
     visits = defaultdict(int)
     backups = 0
-    interval_max_residual = 0.0
-    interval_backup_count = 0
-    residual_history = []
-    stable_intervals = 0
-    converged = False
-    episodes_run = 0
-
     def project_belief(p_i):
         return project_belief_on_grid(p_i, belief_bins)
 
@@ -290,16 +270,13 @@ def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
         episode_types.append(rng.choice([True, False]))
     rng.shuffle(episode_types)
 
-    for episode_idx, true_type_independent in enumerate(episode_types):
-        episodes_run = episode_idx + 1
+    for true_type_independent in episode_types:
         state, p_i = start, initial_belief
         for _step in range(max_steps):
             if is_joint_goal(state, goal_gems):
                 break
             k = (state, bkey(p_i))
             visits[k] += 1
-            old_value = value(state, p_i)
-
             if state[-1] == "assistant":
                 action_q = {}
                 for action, sp, ch, ca in assistant_actions(maze, state):
@@ -310,9 +287,6 @@ def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
                 new_value = action_q[best_action]
                 values[k] = new_value
                 q_values[k] = action_q
-                residual = abs(new_value - old_value)
-                interval_max_residual = max(interval_max_residual, residual)
-                interval_backup_count += 1
                 backups += 1
                 chosen = next((x for x in assistant_actions(maze, state) if x[0] == best_action), None)
                 if chosen is None:
@@ -338,9 +312,6 @@ def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
                     expected_value += prob * (-(ch + ca) + value(sp, p_next))
                 values[k] = expected_value
                 q_values[k] = {"__expected__": expected_value}
-                residual = abs(expected_value - old_value)
-                interval_max_residual = max(interval_max_residual, residual)
-                interval_backup_count += 1
                 backups += 1
 
                 # Simulate the actual fixed type, while updating belief using
@@ -355,47 +326,16 @@ def rtdp(maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
                     break
                 state, p_i = successors[raw_action]
 
-        # Evaluate the maximum update residual over this interval. An interval
-        # with no backups cannot count as converged.
-        interval_complete = (episodes_run % check_interval == 0) or (episodes_run == trials)
-        if interval_complete:
-            max_residual = (interval_max_residual if interval_backup_count else None)
-            residual_history.append({
-                "episode": episodes_run,
-                "max_update_residual": max_residual,
-                "backups": interval_backup_count,
-            })
-            if (episodes_run >= min_trials and max_residual is not None
-                    and max_residual < residual_tolerance):
-                stable_intervals += 1
-            else:
-                stable_intervals = 0
-
-            interval_max_residual = 0.0
-            interval_backup_count = 0
-            if stable_intervals >= convergence_patience:
-                converged = True
-                break
-
     training_stats = {
-        "episodes_run": episodes_run,
-        "independent_episodes": sum(1 for x in episode_types[:episodes_run] if x),
-        "collaborative_episodes": sum(1 for x in episode_types[:episodes_run] if not x),
-        "converged": converged,
-        "stopping_reason": "residual_converged" if converged else "max_trials_reached",
-        "check_interval": check_interval,
-        "residual_tolerance": residual_tolerance,
-        "convergence_patience": convergence_patience,
-        "min_trials": min_trials,
-        "stable_intervals_at_stop": stable_intervals,
-        "residual_history": residual_history,
+        "episodes_run": trials,
+        "independent_episodes": sum(1 for x in episode_types if x),
+        "collaborative_episodes": sum(1 for x in episode_types if not x),
     }
     return values, q_values, dict(visits), backups, training_stats
 
 
 def train(maze, goal_spec, independent_human_path, joint_path, assistant_independent_path,
-          p_independent, beta, trials, max_steps, seed, belief_bins,
-          check_interval, residual_tolerance, convergence_patience, min_trials):
+          p_independent, beta, trials, max_steps, seed, belief_bins):
     goal_label, goal_gems = parse_goal_spec(goal_spec)
     if maze.robot_start is None:
         raise ValueError("Maze must contain assistant/robot start 'm'")
@@ -409,9 +349,7 @@ def train(maze, goal_spec, independent_human_path, joint_path, assistant_indepen
     values, q_by_state, visits, backups, training_stats = rtdp(
         maze, start, goal_gems, q_h_ind, q_h_joint, q_a_ind, q_a_col,
         p_independent=p_independent, beta=beta, trials=trials,
-        max_steps=max_steps, seed=seed, belief_bins=belief_bins,
-        check_interval=check_interval, residual_tolerance=residual_tolerance,
-        convergence_patience=convergence_patience, min_trials=min_trials)
+        max_steps=max_steps, seed=seed, belief_bins=belief_bins)
 
     utility_out, q_out, policy_out = {}, {}, {}
     for (state, pkey), val in values.items():
@@ -634,14 +572,6 @@ def main():
                          help="Number of intervals in the uniform belief grid (20 gives 0.00, 0.05, ..., 1.00)")
     p_train.add_argument("--beta", type=float, default=10.0, help="Boltzmann inverse-temperature for human models")
     p_train.add_argument("--trials", type=int, default=20000)
-    p_train.add_argument("--check-interval", type=int, default=500,
-                         help="Evaluate update residuals every N training episodes")
-    p_train.add_argument("--residual-tolerance", type=float, default=2,
-                         help="Maximum update residual required for a stable interval")
-    p_train.add_argument("--convergence-patience", type=int, default=3,
-                         help="Number of consecutive stable intervals required to stop")
-    p_train.add_argument("--min-trials", type=int, default=300,
-                         help="Minimum episodes before convergence-based early stopping")
 
     p_test = sub.add_parser("test", help="Roll out a trained policy against each human type")
     add_common(p_test)
@@ -655,9 +585,7 @@ def main():
     if args.command == "train":
         result = train(maze, args.human_goal, args.independent_human_q_values, args.joint_q_values,
                        args.assistant_independent_q_values, args.p_independent, args.beta,
-                       args.trials, args.max_steps, args.seed, args.belief_bins,
-                       args.check_interval, args.residual_tolerance,
-                       args.convergence_patience, args.min_trials)
+                       args.trials, args.max_steps, args.seed, args.belief_bins)
         output = {"maze": str(args.maze), "solver": result["solver"],
                   "goals": {result["goal"]: result}, "pddl_names": maze.pddl_names}
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -667,10 +595,6 @@ def main():
         print(f"Belief grid: {args.belief_bins + 1} points (step={1.0 / args.belief_bins:.4f})")
         print(f"Training episodes={result['rtdp_trials_run']}/{result['rtdp_trials_requested']}; "
               f"visited belief states={result['visited_belief_states']}; backups={result['rtdp_backups']}")
-        stats = result["training_stats"]
-        print(f"Converged={stats['converged']} ({stats['stopping_reason']}); "
-              f"residual tolerance={stats['residual_tolerance']}; "
-              f"stable intervals={stats['stable_intervals_at_stop']}")
         print(f"Output: {args.out}")
     else:
         results = test(maze, args.human_goal, args.policy, args.independent_human_q_values,

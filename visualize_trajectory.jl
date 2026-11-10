@@ -1,8 +1,8 @@
 # Animate the independent-human value-iteration trajectory.
 
-using Pkg
-Pkg.activate(@__DIR__)
-Pkg.instantiate()
+# using Pkg
+# Pkg.activate(@__DIR__)
+# Pkg.instantiate()
 CLIPS_ROOT = joinpath(@__DIR__, "..", "CLIPS.jl")
 
 using PDDL
