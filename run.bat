@@ -8,7 +8,8 @@ REM Default: start from step 1
 set START_STEP=%1
 if "%START_STEP%"=="" set START_STEP=1
 
-set "MAZE_NAME=maze_2.txt"
+set "MAZE_NAME=%~2"
+if "%MAZE_NAME%"=="" set "MAZE_NAME=maze_1.txt"
 
 for %%F in ("%MAZE_NAME%") do set "FOLDER=%%~nF"
 

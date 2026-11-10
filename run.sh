@@ -10,7 +10,7 @@ export PYTHONUNBUFFERED=1
 # Default: start from step 1
 START_STEP=${1:-1}
 
-MAZE_NAME="maze_2.txt"
+MAZE_NAME=${2:-maze_1.txt}
 FOLDER="${MAZE_NAME%.*}"
 
 # Create output folder if it does not exist
