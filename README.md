@@ -177,5 +177,5 @@ Generated results are stored in the output directory associated with the selecte
 - **Supervisor:** Prof. Tan Zhi-Xuan
 - **Environment:** Julia 1.11.9
 - **Supporting research repository:** [CLIPS.jl](https://github.com/cosilab/CLIPS.jl)
-- **End-to-end execution:** `run.bat` (Windows); `run.sh` (macOS/Linux, when included)
+- **End-to-end execution:** `run.bat` (Windows); `run.sh` (macOS/Linux)
 
