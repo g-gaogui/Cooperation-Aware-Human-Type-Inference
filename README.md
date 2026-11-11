@@ -107,10 +107,10 @@ Run the complete pipeline with:
 run.bat
 ```
 
-To resume from a particular pipeline stage, pass its step number. For example, to start at Step 8:
+To resume from a particular pipeline stage, pass its step number. For example, to start at Step 8 for maze_1.txt:
 
 ```bat
-run.bat 8
+run.bat 8 maze_1.txt
 ```
 
 The batch script runs all stages from the specified step through Step 13. Ensure that the outputs required by the selected starting step already exist.
@@ -127,7 +127,7 @@ chmod +x run.sh
 To resume from a particular stage:
 
 ```bash
-./run.sh 8
+./run.sh 8 maze_1.txt
 ```
 
 The supplied source archive used to prepare this README contained `run.bat` but did not contain `run.sh`. The macOS/Linux command above documents the intended entry point; make sure the corresponding `run.sh` script is present in the repository before relying on it.
