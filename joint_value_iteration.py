@@ -7,59 +7,6 @@ move/pickup/unlock primitives, same JSON output shape per goal
 existing Julia visualizer needs only small extensions rather than a
 rewrite, and step 1's human-only state is embedded verbatim inside
 the joint state (see DESIGN NOTES below).
-
-Put this file in the same directory as value_iteration.py.
-
-Run from my_project/ or repo root:
-  python my_project/joint_value_iteration.py
-  python my_project/joint_value_iteration.py --human-goal red --assistant-goal yellow
-
-======================== DESIGN NOTES (read first) =========================
-
-1. JOINT STATE
-     (posH, keysH, gemsH, posA, keysA, unlocked, turn)
-   `unlocked` (doors) is SHARED: either agent unlocking a door opens it
-   for both. `keys_held` / `gems_held` are per-agent. This is exactly
-   step 1's State = (pos, keys_held, unlocked, gems_held) duplicated
-   per agent, with `unlocked` pulled out to the shared level.
-
-2. TURN-TAKING, NOT SIMULTANEOUS JOINT ACTIONS.
-   Step 1's PDDL export already alternates "(human-action) (wait robot)"
-   to preserve turn order. This file follows that convention: at each
-   MDP step exactly one agent acts (real action, cost 1) or explicitly
-   waits (cost 0), then turn flips. This sidesteps having to define a
-   collision-resolution rule for two agents moving simultaneously.
-   >>> If your actual domain requires simultaneous joint actions
-   >>> instead, the fix is localized: replace `joint_successors` with
-   >>> a version that enumerates the cross-product of both agents'
-   >>> individual actions per step; everything downstream (VI, cost
-   >>> tracking, serialization) is unaffected.
-
-3. SEPARATE HUMAN / ASSISTANT COST.
-   Every transition yields `(human_cost, assistant_cost)`. Only the
-   acting agent pays the action cost, so a human action has `(1, 0)` and
-   an assistant action has `(0, 1)`. The VI objective is still the total
-   team action cost `human_cost + assistant_cost`, but the trajectory and
-   final output preserve the two costs separately, including per-step
-   costs and separate cost-to-go values.
-
-4. GOAL: ONLY THE HUMAN COLLECTS THE GOAL GEM(S).
-   The assistant is an assisting agent: it may move, pick up keys, and
-   unlock doors, but it cannot pick up gems. The episode terminates as
-   soon as the human has collected all gems specified by `--human-goal`.
-   There is no assistant goal.
-
-5. WAIT ACTION.
-   Both agents can always choose to wait (cost 0) on their turn. This
-   is necessary so the state space doesn't force an agent to move
-   pointlessly once its part of the goal is done, or when it must let
-   the other agent pass through a doorway first.
-
-6. COLLISION.
-   An agent cannot move onto the cell the other agent currently
-   occupies (checked against the OTHER agent's position at the start
-   of the turn, which is safe since only one agent moves per turn).
-
 =============================================================================
 """
 
